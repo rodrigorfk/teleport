@@ -33,6 +33,7 @@ import (
 	clientauthv1beta1 "k8s.io/client-go/pkg/apis/clientauthentication/v1beta1"
 
 	"github.com/gravitational/teleport/api/identityfile"
+	"github.com/gravitational/teleport/lib/tbot/botfs"
 	"github.com/gravitational/teleport/lib/tbot/config"
 	"github.com/gravitational/teleport/lib/tbot/tshwrap"
 	"github.com/gravitational/teleport/lib/tlsca"
@@ -72,6 +73,12 @@ func onKubeCredentialsCommand(cfg *config.BotConfig) error {
 	if err != nil {
 		return trace.Wrap(err)
 	}
+
+	// if tbot wrote the output to a kubernetes secret and that secret
+	// is mounted in another pod for further usage, the content of the
+	// mount point will actually be a symlink, which requires enabling
+	// insecure reads here
+	destination.Symlinks = botfs.SymlinksInsecure
 
 	idData, err := destination.Read(ctx, config.IdentityFilePath)
 	if err != nil {

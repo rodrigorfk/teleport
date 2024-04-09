@@ -25,12 +25,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gravitational/teleport/lib/tbot/bot"
+	"github.com/gravitational/teleport/lib/utils/golden"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/client/webclient"
 	"github.com/gravitational/teleport/lib/tbot/botfs"
 	"github.com/gravitational/teleport/lib/tbot/identity"
-	"github.com/gravitational/teleport/lib/utils/golden"
 )
 
 // Fairly ugly hardcoded certs to use in the generation so that the tests are
@@ -104,9 +106,12 @@ func TestTemplateKubernetesRender(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		useRelativePath   bool
-		disableExecPlugin bool
+		name               string
+		useRelativePath    bool
+		disableExecPlugin  bool
+		expectedMountPoint string
+		destination        bot.Destination
+		wantErr            string
 	}{
 		{
 			name: "absolute path",
@@ -119,6 +124,20 @@ func TestTemplateKubernetesRender(t *testing.T) {
 			name:              "exec plugin disabled",
 			disableExecPlugin: true,
 		},
+		{
+			name: "kubernetes secret output, no expected mount point",
+			destination: &DestinationKubernetesSecret{
+				Name: "secret-output",
+			},
+			wantErr: "Unable to determine the mount point for exec plugin mode, please make sure you have defined the expected_mount_point.",
+		},
+		{
+			name: "memory output",
+			destination: &DestinationMemory{
+				store: map[string][]byte{},
+			},
+			expectedMountPoint: "/test/some-folder",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -128,24 +147,34 @@ func TestTemplateKubernetesRender(t *testing.T) {
 				clusterName:          k8sCluster,
 				executablePathGetter: fakeGetExecutablePath,
 				disableExecPlugin:    tt.disableExecPlugin,
+				expectedMountPoint:   tt.expectedMountPoint,
 			}
-			dest := &DestinationDirectory{
-				Path:     dir,
-				Symlinks: botfs.SymlinksInsecure,
-				ACLs:     botfs.ACLOff,
-			}
-			if tt.useRelativePath {
-				wd, err := os.Getwd()
-				require.NoError(t, err)
-				relativePath, err := filepath.Rel(wd, dir)
-				require.NoError(t, err)
-				dest.Path = relativePath
+			dest := tt.destination
+			if dest == nil {
+				destinationPath := dir
+				if tt.useRelativePath {
+					wd, err := os.Getwd()
+					require.NoError(t, err)
+					relativePath, err := filepath.Rel(wd, dir)
+					require.NoError(t, err)
+					destinationPath = relativePath
+				}
+				dest = &DestinationDirectory{
+					Path:     destinationPath,
+					Symlinks: botfs.SymlinksInsecure,
+					ACLs:     botfs.ACLOff,
+				}
 			}
 
 			err = tmpl.render(context.Background(), mockBot, id, dest)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+
 			require.NoError(t, err)
 
-			kubeconfigBytes, err := os.ReadFile(filepath.Join(dir, defaultKubeconfigPath))
+			kubeconfigBytes, err := dest.Read(context.Background(), defaultKubeconfigPath)
 			require.NoError(t, err)
 			kubeconfigBytes = bytes.ReplaceAll(kubeconfigBytes, []byte(dir), []byte("/test/dir"))
 

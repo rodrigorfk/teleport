@@ -43,6 +43,7 @@ type templateKubernetes struct {
 	clusterName          string
 	executablePathGetter executablePathGetter
 	disableExecPlugin    bool
+	expectedMountPoint   string
 }
 
 func (t *templateKubernetes) name() string {
@@ -213,14 +214,18 @@ func (t *templateKubernetes) render(
 		// In exec plugin mode, we write the credentials to disk and write a
 		// kubeconfig that execs `tbot` to load those credentials.
 
-		// We only support directory mode for this since the exec plugin needs
-		// to know the path to read the credentials from, and this is
-		// unpredictable with other types of destination.
+		// If the destination is a directory, then uses the directory path
+		// otherwise requires the expected_mount_point to be provided.
+		mountPoint := ""
 		destinationDir, ok := destination.(*DestinationDirectory)
-		if !ok {
+		if ok {
+			mountPoint = destinationDir.Path
+		} else {
+			mountPoint = t.expectedMountPoint
+		}
+		if mountPoint == "" {
 			return trace.BadParameter(
-				"Destination %s must be a directory in exec plugin mode",
-				destination,
+				"Unable to determine the mount point for exec plugin mode, please make sure you have defined the expected_mount_point.",
 			)
 		}
 
@@ -229,7 +234,7 @@ func (t *templateKubernetes) render(
 			return trace.Wrap(err)
 		}
 
-		cfg, err = generateKubeConfigWithPlugin(status, destinationDir.Path, executablePath)
+		cfg, err = generateKubeConfigWithPlugin(status, mountPoint, executablePath)
 		if err != nil {
 			return trace.Wrap(err)
 		}

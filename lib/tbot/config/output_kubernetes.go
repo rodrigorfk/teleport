@@ -52,6 +52,11 @@ type KubernetesOutput struct {
 	// kubeconfig. It does mean that kubectl will not be able to automatically
 	// refresh the credentials within an individual invocation.
 	DisableExecPlugin bool `yaml:"disable_exec_plugin"`
+
+	// ExpectedMountPoint is expected when the exec plugin is enabled and
+	// the destination is not a directory, it specifies the expected path
+	// whereas the destination will be mounted in the filesystem.
+	ExpectedMountPoint string `yaml:"expected_mount_point"`
 }
 
 func (o *KubernetesOutput) templates() []template {
@@ -62,6 +67,7 @@ func (o *KubernetesOutput) templates() []template {
 			clusterName:          o.KubernetesCluster,
 			executablePathGetter: os.Executable,
 			disableExecPlugin:    o.DisableExecPlugin,
+			expectedMountPoint:   o.ExpectedMountPoint,
 		},
 	}
 }
